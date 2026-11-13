@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arquivo Histórico de Publicações | José Dercy</title>
+  <meta name="description" content="Arquivo cronológico completo de todos os artigos técnicos, relatórios e autópsias de código de José Dercy.">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ==================== CABEÇALHO / NAVEGAÇÃO ==================== -->
+  <header>
+    <div class="container nav-container">
+      <a href="index.html#publicacoes" id="nav-brand" class="brand-title"><span data-i18n="nav.brand">Publicações</span><span class="accent-char">.</span></a>
+      <nav>
+        <a href="index.html" id="nav-home" data-i18n="nav.home">Início</a>
+        <a href="sobre.html" id="nav-about" data-i18n="nav.about">Sobre</a>
+        <a href="arquivo.html" id="nav-archive" data-i18n="nav.archive">Arquivo</a>
+
+        <!-- Seletor de Idioma -->
+        <div class="seletor-idioma">
+          <button id="btn-lang-pt" class="btn-idioma ativo" type="button" aria-label="Português">PT</button>
+          <button id="btn-lang-en" class="btn-idioma" type="button" aria-label="English">EN</button>
+        </div>
+
+        <!-- Interruptor de Tema (Sol - Pílula Verde - Lua) -->
+        <div class="tema-toggle-container">
+          <svg class="icone-tema" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <label class="switch" for="toggle-tema" aria-label="Alternar tema escuro/claro">
+            <input type="checkbox" id="toggle-tema" checked>
+            <span class="slider"></span>
+          </label>
+          <svg class="icone-tema" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ==================== CONTEÚDO DO ARQUIVO ==================== -->
+  <main class="container">
+    <div style="margin-bottom: 2rem;">
+      <a href="index.html" id="archive-back-link" data-i18n="archive.back" style="font-family: var(--font-mono); font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-bottom: 1.5rem;">
+        ← Voltar para a página inicial
+      </a>
+
+      <h1 id="archive-title" data-i18n="archive.title" style="color: var(--text-heading); font-size: 2.2rem; line-height: 1.2; margin-bottom: 0.5rem;">
+        Arquivo Histórico
+      </h1>
+      <p id="archive-desc" style="color: var(--text-muted); font-size: 1.05rem;">
+        Carregando publicações...
+      </p>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid var(--border-color); margin-bottom: 2.5rem;" />
+
+    <!-- Container agrupado por ano gerado via main.js -->
+    <div id="archive-years-container">
+      <!-- Injetado via main.js -->
+    </div>
+  </main>
+
+  <!-- ==================== RODAPÉ ==================== -->
+  <footer>
+    <div class="container">
+      <p id="footer-text" data-i18n="footer.text">José Dercy • Construído com foco em simplicidade e conteúdo técnico.</p>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script type="module" src="js/main.js?v=3"></script>
+</body>
+</html>
