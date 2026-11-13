@@ -1,0 +1,877 @@
+/* =========================================================
+   ESTILO MINIMALISTA DE ENGENHARIA (Inspirado em Brittany Chiang)
+   Vanilla CSS Puro
+   ========================================================= */
+
+:root {
+  /* Tema Padrão (Dark Charcoal Sóbrio #2a2a2a) */
+  --bg-primary: #2a2a2a;
+  --bg-secondary: #333333;
+  --bg-card: #383838;
+  --text-primary: #d1d5db;
+  --text-muted: #9ca3af;
+  --text-heading: #f3f4f6;
+  --accent: #64ffda;
+  --accent-tint: rgba(100, 255, 218, 0.1);
+  --border-color: #404040;
+  --code-bg: #1e1e1e;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Roboto Mono', monospace;
+  --max-width: 800px;
+}
+
+/* Tema Claro (Tom Papel / Warm Grey #f0f0e8) */
+body.tema-claro {
+  --bg-primary: #f0f0e8;
+  --bg-secondary: #e6e6dc;
+  --bg-card: #f8f8f2;
+  --text-primary: #2b2b27;
+  --text-muted: #616159;
+  --text-heading: #141412;
+  --accent: #d85d2a;
+  --accent-tint: rgba(216, 93, 42, 0.12);
+  --border-color: #d8d8ce;
+  --code-bg: #1e1e1e;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Alternância declarativa de blocos HTML por idioma */
+html[lang="pt-BR"] [data-lang="en"],
+html[lang="en"] [data-lang="pt"] {
+  display: none;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: all 0.2s ease-in-out;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.container {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* =========================================================
+   HEADER & NAVEGAÇÃO
+   ========================================================= */
+header {
+  padding: 2.5rem 0 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 2.5rem;
+}
+
+.nav-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.brand-title {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.brand-title .accent-char {
+  color: var(--accent);
+}
+
+.brand-title:hover {
+  text-decoration: none;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+nav a {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+nav a:hover, nav a.active {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* SELETOR DE IDIOMA (Pílula discreta PT | EN) */
+.seletor-idioma {
+  display: flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 2px;
+}
+
+.btn-idioma {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 3px 8px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-idioma.ativo, .btn-idioma:hover {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+/* =========================================================
+   O INTERRUPTOR DE TEMA (Sol - Pílula Verde - Lua)
+   ========================================================= */
+.tema-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icone-tema {
+  color: var(--text-muted);
+  display: block;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #a3e635; /* O verde-limão da imagem */
+  transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 24px;
+}
+
+.slider::before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #ffffff;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
+.switch input:not(:checked) + .slider {
+  background-color: #cbd5e1;
+}
+
+/* =========================================================
+   SEÇÃO HERO / APRESENTAÇÃO (Inspirada no modelo com Ícones Sociais e Foto)
+   ========================================================= */
+.hero-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2.5rem;
+  margin-bottom: 2.5rem;
+  padding-top: 1rem;
+}
+
+.hero-content-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-photo-col {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hero-photo {
+  width: 210px;
+  height: 210px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 20%;
+  border: 3px solid var(--border-color);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  display: block;
+  transition: transform 0.25s ease, border-color 0.25s ease;
+}
+
+.hero-photo:hover {
+  transform: scale(1.02);
+  border-color: var(--accent);
+}
+
+/* =========================================================
+   BOTÃO SOBRE MIM (Abaixo da Foto no Hero)
+   Fluido, minimalista e 100% harmonizado com a identidade do site
+   ========================================================= */
+.hero-about-card {
+  display: block;
+  width: 100%;
+  max-width: 210px;
+  margin-top: 1rem;
+  padding: 0.65rem 0.9rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  text-decoration: none;
+  text-align: left;
+  transition: all 0.25s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.hero-about-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -12px rgba(0, 0, 0, 0.5);
+  text-decoration: none;
+}
+
+.hero-about-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.2rem;
+}
+
+.hero-about-card-title {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  transition: color 0.2s ease;
+}
+
+.hero-about-card:hover .hero-about-card-title {
+  color: var(--accent);
+}
+
+.hero-about-card-arrow {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.hero-about-card:hover .hero-about-card-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+.hero-about-card-desc {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  transition: color 0.2s ease;
+}
+
+.hero-about-card:hover .hero-about-card-desc {
+  color: var(--text-primary);
+}
+
+body.tema-claro .hero-about-card {
+  background: var(--bg-card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+@media (max-width: 720px) {
+  .hero-section {
+    flex-direction: column-reverse;
+    text-align: center;
+    gap: 1.75rem;
+  }
+  .social-links-row {
+    justify-content: center;
+  }
+  .hero-photo {
+    width: 170px;
+    height: 170px;
+  }
+}
+
+.hero-intro-title {
+  color: var(--text-heading);
+  font-size: 2.6rem;
+  line-height: 1.15;
+  margin-bottom: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.wave-emoji {
+  display: inline-block;
+  animation: wave 2.2s infinite;
+  transform-origin: 70% 70%;
+}
+
+@keyframes wave {
+  0% { transform: rotate(0deg); }
+  10% { transform: rotate(14deg); }
+  20% { transform: rotate(-8deg); }
+  30% { transform: rotate(14deg); }
+  40% { transform: rotate(-4deg); }
+  50% { transform: rotate(10deg); }
+  60% { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.hero-intro-desc {
+  color: var(--text-primary);
+  max-width: 680px;
+  font-size: 1.12rem;
+  line-height: 1.75;
+  margin-bottom: 1.75rem;
+}
+
+.hero-intro-desc strong {
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+/* LINHA DE ÍCONES SOCIAIS CIRCULARES (GitHub, LinkedIn, E-mail) */
+.social-links-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 2rem;
+}
+
+.social-circle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: #ffffff !important;
+  text-decoration: none;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, filter 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.social-circle-btn:hover {
+  transform: translateY(-3px) scale(1.06);
+  text-decoration: none;
+  filter: brightness(1.1);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.btn-github {
+  background-color: #24292e;
+}
+
+.btn-linkedin {
+  background-color: #0077b5;
+}
+
+.btn-email {
+  background-color: #ea4335;
+}
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  padding: 0.22rem 0.6rem;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+body.tema-claro .tag {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.tag:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+/* =========================================================
+   SEÇÃO EDITORIAL DE HABILIDADES (Estilo Colunas / Imagem de Referência)
+   ========================================================= */
+.skills-editorial-section {
+  display: flex;
+  gap: 2rem;
+  margin: 3rem 0 3.5rem;
+  padding: 2.25rem 0;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  align-items: flex-start;
+}
+
+.skills-editorial-label {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #0070f3; /* Azul marcante como na imagem de referência */
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-top: 0.15rem;
+}
+
+body.tema-claro .skills-editorial-label {
+  color: #0060df;
+}
+
+.skills-editorial-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.25rem;
+  flex: 1;
+}
+
+.skills-editorial-col-title {
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-heading);
+  margin-bottom: 0.85rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.skills-editorial-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.skills-editorial-list li {
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  line-height: 1.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.skills-editorial-list li:hover {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+
+@media (max-width: 860px) {
+  .skills-editorial-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem 1.5rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .skills-editorial-section {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .skills-editorial-grid {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+}
+
+/* =========================================================
+   POST CARDS (Lista de Artigos)
+   ========================================================= */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+}
+
+.section-title {
+  color: var(--text-heading);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.section-counter {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.post-card {
+  display: block;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+  transition: all 0.25s cubic-bezier(0.645, 0.045, 0.355, 1);
+  text-decoration: none;
+}
+
+.post-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  text-decoration: none;
+  box-shadow: 0 10px 30px -15px rgba(0, 0, 0, 0.5);
+}
+
+.post-card:hover .post-card-title {
+  color: var(--accent);
+}
+
+.post-card:hover .post-card-date {
+  color: var(--text-primary);
+}
+
+.post-card-date {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+.post-card-title {
+  color: var(--text-heading);
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+.post-card-desc {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.post-tags {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* =========================================================
+   ESTADO VAZIO / EM PREPARAÇÃO (Publicações)
+   Minimalista, elegante e integrado ao design do site
+   ========================================================= */
+.empty-publications-box {
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  padding: 3rem 2rem;
+  text-align: center;
+  margin: 1.5rem 0;
+  transition: all 0.25s ease;
+}
+
+.empty-publications-box:hover {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.4);
+}
+
+.empty-pub-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.empty-publications-box:hover .empty-pub-icon {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+body.tema-claro .empty-pub-icon {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.empty-pub-title {
+  font-family: var(--font-sans);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  margin-bottom: 0.6rem;
+}
+
+.empty-pub-desc {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* BOTÃO DE ARQUIVO COMPLETO */
+.archive-action-container {
+  text-align: center;
+  margin-top: 2.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.archive-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--text-heading);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  padding: 0.75rem 1.6rem;
+  border-radius: 6px;
+  transition: all 0.25s ease;
+  text-decoration: none;
+}
+
+.archive-btn:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(100, 255, 218, 0.15);
+}
+
+/* =========================================================
+   PÁGINA DO ARTIGO (post.html / Prose Styling)
+   ========================================================= */
+#post-back-link, #about-back-link, #archive-back-link {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  display: inline-block;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+#post-back-link:hover, #about-back-link:hover, #archive-back-link:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.prose {
+  color: var(--text-primary);
+}
+
+.prose h1, .prose h2, .prose h3 {
+  color: var(--text-heading);
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.prose h1 { font-size: 2rem; line-height: 1.2; }
+.prose h2 { font-size: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.4rem; }
+.prose h3 { font-size: 1.25rem; }
+
+.prose p {
+  margin-bottom: 1.25rem;
+}
+
+.prose ul, .prose ol {
+  margin-left: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose li {
+  margin-bottom: 0.4rem;
+}
+
+.prose a {
+  color: var(--text-heading);
+  text-decoration: underline;
+  text-decoration-color: var(--border-color);
+  text-underline-offset: 3px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.prose a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+.prose blockquote {
+  border-left: 3px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  border-radius: 0 4px 4px 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+body.tema-claro .prose blockquote {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.prose code:not(pre code) {
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-heading);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.88em;
+  border: 1px solid var(--border-color);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+body.tema-claro .prose code:not(pre code) {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.prose code:not(pre code):hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.prose pre {
+  background: var(--code-bg) !important;
+  border: 1px solid var(--border-color);
+  padding: 1.2rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 2.5rem 0;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+}
+
+.prose th, .prose td {
+  border: 1px solid var(--border-color);
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+.prose th {
+  background: var(--bg-secondary);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+
+/* =========================================================
+   PÁGINA DE ARQUIVO (arquivo.html)
+   ========================================================= */
+.archive-row {
+  border-bottom: 1px solid var(--border-color);
+  padding: 1rem 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.archive-row:hover {
+  text-decoration: none;
+  border-color: var(--accent);
+}
+
+.archive-row:hover .archive-row-title {
+  color: var(--accent);
+}
+
+.archive-row-title {
+  color: var(--text-heading);
+  font-size: 1.05rem;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.archive-row-date {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: 1.5rem;
+}
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+footer {
+  margin-top: 4rem;
+  padding: 2rem 0;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
