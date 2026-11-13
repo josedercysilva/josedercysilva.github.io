@@ -1,0 +1,6 @@
+# Notas e rascunhos locais (não versionados)
+notas/
+
+# Arquivos temporários de sistema / editores
+.DS_Store
+Thumbs.db
