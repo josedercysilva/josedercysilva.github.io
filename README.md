@@ -2,11 +2,11 @@
 
 Site/blog pessoal de **José Dercy**, construído **100% em Vanilla Web puro** — **zero build tools, zero bundlers, zero `npm install`**.
 
-🌐 **Site no ar:** [josedercysilva.github.io](https://josedercysilva.github.io)
+**Site no ar:** [josedercysilva.github.io](https://josedercysilva.github.io)
 
 ---
 
-## 🚀 Como Iniciar o Servidor Local
+## Como Iniciar o Servidor Local
 
 Como os navegadores bloqueiam requisições `fetch()` de arquivos locais (`file://`) por CORS, execute na raiz do projeto qualquer servidor HTTP local:
 
@@ -22,7 +22,7 @@ Abra no navegador: `http://localhost:3000`
 
 ---
 
-## 📂 Arquitetura do Projeto
+## Arquitetura do Projeto
 
 - **HTML (`*.html`)**: Estrutura das páginas e conteúdo principal da página inicial (`data-lang="pt"` / `data-lang="en"`).
 - **Markdown (`posts/{pt,en}/*.md`)**: Conteúdo editorial — artigos e página *Sobre Mim* (`sobre.md`).
@@ -51,7 +51,7 @@ josedercysilva.github.io/
 
 ---
 
-## 🛠️ Recursos Implementados
+## Recursos Implementados
 
 1. **Estética Minimalista de Engenharia:**
    - Tema escuro padrão (`#2a2a2a` com destaque `#64ffda`) e tema claro em tom papel (`#f0f0e8` com destaque `#d85d2a`), com tipografia `Inter` e `Fira Code`.
@@ -68,7 +68,7 @@ josedercysilva.github.io/
 
 ---
 
-## ✍️ Como Adicionar um Novo Artigo
+## Como Adicionar um Novo Artigo
 
 1. Crie os arquivos Markdown em `posts/pt/<seu-slug>.md` e `posts/en/<seu-slug>.md`.
 2. Em `js/posts-data.js`, adicione uma nova entrada ao array `POSTS`:
