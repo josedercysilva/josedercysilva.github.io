@@ -790,7 +790,7 @@ body.tema-claro .prose code:not(pre code) {
 
 .prose pre {
   background: var(--code-bg) !important;
-  color: #e5e7eb;
+  color: #e5e7eb !important;
   border: 1px solid var(--border-color);
   padding: 1.2rem;
   border-radius: 8px;
@@ -801,8 +801,10 @@ body.tema-claro .prose code:not(pre code) {
   line-height: 1.5;
 }
 
-.prose pre code {
-  color: inherit;
+.prose pre code,
+body.tema-claro .prose pre,
+body.tema-claro .prose pre code {
+  color: #e5e7eb !important;
   background: transparent;
 }
 
