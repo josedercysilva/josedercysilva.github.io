@@ -2,7 +2,7 @@ A arquitetura **CENT** (*PIM Is All You Need: A CXL-Enabled GPU-Free System for 
 
 Embora os ganhos analíticos e de simulação sejam expressivos no artigo, existe uma lacuna prática entre os resultados acadêmicos e a execução real: falta uma camada de sistema capaz de receber tensores do **PyTorch** e despachá-los para o modelo de execução da arquitetura.
 
-Este relatório técnico documenta o contexto arquitetural, os gargalos físicos que motivaram o projeto, o papel de um **hardware dispatcher**, o funcionamento do simulador oficial (**`aim_simulator` / Ramulator 2.0**) e a implementação do [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime) — uma ponte em **C++17 + C ABI + Python** que conecta camadas lineares de modelos como o **Llama-2 7B** ao conjunto de instruções da arquitetura CENT.
+Este relatório técnico documenta o contexto arquitetural, os gargalos físicos que motivaram o projeto, o papel de um **hardware dispatcher**, o funcionamento do simulador oficial (**`aim_simulator` / Ramulator 2.0**) e a implementação do [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime) — uma ponte em **C++17 + C ABI + Python** que conecta camadas lineares de modelos como o **Llama-2 7B** ao conjunto de instruções da arquitetura CENT. Os slides do seminário que acompanham este trabalho também estão disponíveis na raiz do repositório em [`apresentacao_cent.pdf`](https://github.com/josedercysilva/cent-pim-runtime/blob/main/apresentacao_cent.pdf).
 
 ---
 
@@ -331,6 +331,7 @@ O `cent_runtime` fecha o ciclo entre a pesquisa em arquitetura de computadores e
 ### Referências
 
 1. **Código do Projeto:** [`josedercysilva/cent-pim-runtime`](https://github.com/josedercysilva/cent-pim-runtime)
-2. **Artigo Original (CENT):** Gu, Y., Khadem, A., et al. (2025). *PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*. **ASPLOS '25**.
-3. **Fundamentos de Hierarquia de Memória:** Patterson, D. A., & Hennessy, J. L. (2014). *Computer Organization and Design: The Hardware/Software Interface* (5th Ed. — MIPS Edition), Cap. 5.
-4. **Especificação CXL:** Compute Express Link Consortium (2022). *CXL Specification Revision 3.0*.
+2. **Slides da Apresentação (Seminário UFAM):** [`apresentacao_cent.pdf`](https://github.com/josedercysilva/cent-pim-runtime/blob/main/apresentacao_cent.pdf) *(raiz do repositório)*
+3. **Artigo Original (CENT):** Gu, Y., Khadem, A., et al. (2025). *PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*. **ASPLOS '25**.
+4. **Fundamentos de Hierarquia de Memória:** Patterson, D. A., & Hennessy, J. L. (2014). *Computer Organization and Design: The Hardware/Software Interface* (5th Ed. — MIPS Edition), Cap. 5.
+5. **Especificação CXL:** Compute Express Link Consortium (2022). *CXL Specification Revision 3.0*.
