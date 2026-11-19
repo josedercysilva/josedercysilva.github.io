@@ -201,7 +201,7 @@ O código nativo é compilado com `-std=c++17 -O3 -fPIC -Wall -Wextra -Werror` e
 
 O arquivo `include/cent/isa.h` define os parâmetros do controlador (`CENT_SRAM_BUFFER_BYTES = 2 MB`, 32 dispositivos CXL, 32 canais por dispositivo, 16 bancos por canal e `opsize = 64` bursts), os 5 opcodes da CENT ISA e o formato binário da instrução:
 
-```c
+```cpp
 enum CentOpcode : uint8_t {
     CENT_OP_WR_GB   = 0x02, // Escreve vetor de ativação no Global Buffer dos canais ativos
     CENT_OP_WR_BIAS = 0x03, // Inicializa registradores acumuladores nos bancos DRAM

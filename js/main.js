@@ -143,6 +143,22 @@ function renderMarkdown(mdText) {
   return parseMarkdownFallback(textoLimpo);
 }
 
+function aplicarSyntaxHighlight(container) {
+  if (!container || !window.hljs) return;
+  const blocos = container.querySelectorAll('pre code');
+  blocos.forEach((bloco) => {
+    const classes = Array.from(bloco.classList);
+    const hasLang = classes.some((c) => c.startsWith('language-'));
+    const isPlainText =
+      !hasLang ||
+      bloco.classList.contains('language-text') ||
+      bloco.classList.contains('language-plaintext') ||
+      bloco.classList.contains('language-ascii');
+    if (isPlainText) return;
+    window.hljs.highlightElement(bloco);
+  });
+}
+
 async function carregarMarkdownNoElemento(filePath, targetEl, loadingText = 'Carregando...') {
   if (!targetEl) return;
   try {
@@ -151,6 +167,7 @@ async function carregarMarkdownNoElemento(filePath, targetEl, loadingText = 'Car
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const markdown = await res.text();
     targetEl.innerHTML = renderMarkdown(markdown);
+    aplicarSyntaxHighlight(targetEl);
   } catch (err) {
     console.error('Erro ao carregar Markdown:', err);
     targetEl.innerHTML = `<p style="color: #ef4444; font-family: var(--font-mono);">Erro ao carregar conteúdo (${err.message}). Certifique-se de estar rodando via servidor HTTP (ex: python3 -m http.server).</p>`;

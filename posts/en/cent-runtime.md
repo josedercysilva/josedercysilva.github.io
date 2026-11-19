@@ -201,7 +201,7 @@ The native library compiles with `-std=c++17 -O3 -fPIC -Wall -Wextra -Werror` an
 
 `include/cent/isa.h` defines the controller parameters (`CENT_SRAM_BUFFER_BYTES = 2 MB`, 32 CXL devices, 32 channels per device, 16 banks per channel, and `opsize = 64` bursts), the 5 CENT ISA opcodes, and the packed binary instruction layout:
 
-```c
+```cpp
 enum CentOpcode : uint8_t {
     CENT_OP_WR_GB   = 0x02, // Writes activation vector to active channels' Global Buffer
     CENT_OP_WR_BIAS = 0x03, // Initializes accumulator registers across DRAM banks
