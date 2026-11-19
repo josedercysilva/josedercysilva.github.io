@@ -8,7 +8,7 @@ I've always liked opening the "black box" of the tools I use every day: beyond b
 
 - **R&D Fellow — SUPER Project** (Samsung / UFAM): 240 hours at CETELI working on engineering, rapid prototyping, and technical modeling within the Samsung–UFAM technology cooperation program.
 - **Object-Oriented Programming Teaching Assistant** (IComp / UFAM): Hands-on mentoring for undergraduate Java classes covering class modeling, encapsulation, inheritance, polymorphism, interfaces, collections (`java.util`), and code debugging.
-- **Tech Lead** (Computer Architecture): Led an engineering team designing a 32-bit MIPS processor in Verilog HDL, defining bus contracts, GitHub Pull Request workflows, and unit testbench validation.
+- **Tech Lead** (Computer Architecture): Led an engineering team designing 32-bit MIPS processors (Single-Cycle and 5-Stage Pipeline) in Verilog HDL, defining bus contracts, GitHub Pull Request workflows, and unit testbench validation.
 
 ---
 
@@ -16,14 +16,14 @@ I've always liked opening the "black box" of the tools I use every day: beyond b
 
 - **Upstream Linux Kernel & PREEMPT_RT** (`7.2.y` / `6.6 LTS`): Cloned and built the official stable kernel tree maintained by Greg Kroah-Hartman, authored a custom `Kconfig` (retaining kernel Rust support and BTF metadata while stripping redundant DWARF symbols), packaged natively via `pacman-pkg`, and validated bare-metal boot (`7.2.7-jdercy-greg+`). Includes root-cause investigation of Intel `i915` driver issues under real-time kernels.
 - **Real-Time Concurrent Simulation** (C / POSIX Threads): Implemented deterministic periodic tasks in C using drift-free absolute timing (`clock_nanosleep` with `CLOCK_MONOTONIC`), priority inversion mitigation via `PTHREAD_PRIO_INHERIT`, and strict coding compliance (`MISRA C` and `BARR-C`).
-- **Processing-in-Memory Runtime — CENT/PIM** (C): Conceptual runtime prototype in C built from UFAM architecture research on CENT/PIM, modeling command descriptors and a ring buffer to explore near-memory command dispatch and the von Neumann *memory wall*.
+- **Processing-in-Memory Runtime — `cent_runtime`** (C++17 / C ABI / PyTorch): Hardware dispatcher in C++17 with a stable C ABI (`libcent_runtime.so`) and Python/PyTorch bindings for the CENT Near-Bank PIM architecture (ASPLOS 2025, GDDR6-AiM over CXL 3.0), lowering Llama-2 7B linear decoding projections (`GEMV`) into 14-byte packed binary descriptors in a 2 MB SRAM buffer, cutting external bus traffic by >99.95% and integrating directly with the cycle-accurate Ramulator 2.0 (`aim_simulator`).
 - **Parallel Image Processing** (Go / Concurrency): Concurrent image filters (*Box Blur* and *Grayscale*) built with *goroutines* and matrix partitioning, paired with empirical benchmarks measuring speedup, CPU saturation, and context-switch overhead against Amdahl's Law.
 
 ---
 
 ## Hardware, Architecture & Low-Level Algorithms
 
-- **32-bit Single-Cycle MIPS Processor** (Verilog HDL / FPGA): Designed and integrated the full microarchitecture (datapath, ALU, register file, control unit, and `jal`, `jr`, `j` branch/jump logic), verified running a Bubble Sort benchmark in MIPS Assembly (built with GNU Binutils) and synthesized for an Intel DE10-Lite (MAX 10) FPGA in Quartus Prime.
+- **32-bit 5-Stage Pipelined & Single-Cycle MIPS Processors** (Verilog HDL / FPGA): End-to-end parameterized Verilog implementation of both Single-Cycle and 5-stage Pipelined (`IF/ID/EX/MEM/WB`) MIPS microarchitectures, featuring a *Forwarding Unit* (RAW data hazard resolution), *Hazard Detection Unit* (*Load-Use stall*), and synchronous branch/jump flushes. Verified across 14 unit/top-level testbenches, Bubble Sort, and double recursion (`fib(7)`), and synthesized for an Intel DE10-Lite (MAX 10) FPGA in Quartus Prime reaching 58.25 MHz (1.29× speedup over the 45.31 MHz Single-Cycle baseline).
 - **8-bit SAP-1 CPU & FPGA Digital Systems** (Verilog HDL): Synthesizable Verilog implementation of an 8-bit SAP-1 CPU (W-bus, PC, MAR, IR, ALU, microinstruction sequencer) and a synchronous hardware finite-state machine, simulated with Icarus Verilog / GTKWave and synthesized with Yosys / Quartus. Complemented by the ChampionCHIP program (133+ hours in microelectronics and RISC-V architecture).
 - **O(1) Syntax Validator** (C): Modular C engine for balanced-delimiter validation (`()`, `[]`, `{}`, `$?`) using a direct 256-byte ASCII lookup table and an input-sized dynamic stack to prevent buffer overflows.
 - **Self-Balancing AVL Tree** (ANSI C89): Complete binary search tree implementation (LL, RR, LR, RL rotations) in strict ANSI C89 with `Makefile` automation and Doxygen docs.
