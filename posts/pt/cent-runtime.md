@@ -1,16 +1,18 @@
-Imagine tentar acelerar a inferência de um Large Language Model (LLM) como o Llama-2 7B durante a geração de texto token a token. Nessa etapa — conhecida como *decoding* — o processamento não é limitado pela capacidade de cálculo da GPU, mas pelo **Memory Wall**: a cada novo token, gigabytes de pesos precisam trafegar da memória até as unidades de cálculo apenas para realizar multiplicações vetor-matriz (`GEMV`, `batch_size = 1`).
+## Contexto e Motivação
 
-A arquitetura **CENT** (*PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*, Gu et al., **ASPLOS 2025**) ataca esse gargalo invertendo a lógica tradicional: em vez de mover os pesos até o processador, ela executa as operações próximo aos bancos de memória (**Near-Bank PIM**) dentro de módulos **GDDR6-AiM** conectados via **CXL 3.0**.
+Durante a etapa de *decoding* na inferência de Large Language Models (LLMs) como o Llama-2 7B (`batch_size = 1`), o desempenho é limitado pela largura de banda de memória (**Memory Wall**), e não pela capacidade aritmética da GPU. A cada novo token gerado, gigabytes de pesos estacionários trafegam da memória até as unidades de cálculo para executar multiplicações vetor-matriz (`GEMV`).
 
-Ao estudar essa arquitetura na UFAM, esbarrei em uma lacuna prática: o simulador oficial do CENT (`aim_simulator`, baseado no **Ramulator 2.0**) é um binário C++ fechado que consome apenas arquivos estáticos de traço (`.trace`). Não existe uma camada para ligar frameworks reais de aprendizado de máquina ao modelo de execução da arquitetura.
+A arquitetura **CENT** (*PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*, Gu et al., **ASPLOS 2025**) mitiga esse gargalo ao deslocar as operações `GEMV` para unidades **Near-Bank PIM** integradas aos bancos de memória **GDDR6-AiM** conectados via **CXL 3.0**.
 
-Foi para resolver essa ponte que desenvolvi o [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime): um *runtime* e *hardware dispatcher* em **C++17** com fronteira **C ABI nativa**, que permite executar camadas lineares do **PyTorch** e do **NumPy** diretamente sobre o modelo de despacho da CENT ISA.
+Entretanto, o simulador oficial da arquitetura (`aim_simulator`, baseado no **Ramulator 2.0**) opera apenas como um binário C++ fechado que consome arquivos estáticos de traço (`.trace`), sem uma interface programática para frameworks de aprendizado de máquina.
+
+Este relatório técnico descreve a arquitetura e a implementação do [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime): um *runtime* e *hardware dispatcher* em **C++17** com fronteira **C ABI nativa**, desenvolvido na UFAM para conectar camadas lineares do **PyTorch** e do **NumPy** ao modelo de despacho da CENT ISA e à geração de traços para o Ramulator 2.0.
 
 ---
 
 ## Visão Geral da Arquitetura
 
-O `cent_runtime` segue a mesma filosofia de integração usada por bibliotecas como `libcudart` e `libcublas`: o código Python não conhece detalhes de registradores ou alinhamento de memória, apenas invoca uma fronteira C estável (`extern "C"`).
+O `cent_runtime` adota o mesmo padrão de integração binária empregado por bibliotecas como `libcudart` e `libcublas`: a camada Python não manipula registradores nem alinhamento de memória diretamente, comunicando-se exclusivamente por meio de uma fronteira C estável (`extern "C"`).
 
 ```text
 +-----------------------------------------------------------------------+
@@ -40,9 +42,9 @@ O `cent_runtime` segue a mesma filosofia de integração usada por bibliotecas c
 
 ---
 
-## O que vai para o PIM e o que fica no PyTorch
+## Particionamento de Execução: PIM vs. Host CPU
 
-Um ponto importante da arquitetura CENT é que bancos de memória DRAM equipados com unidades AiM possuem apenas multiplicadores-acumuladores (`MAC`), e não unidades completas de propósito geral. O `cent_runtime` reflete exatamente essa divisão entre **PIM** (bancos DRAM) e **PNM / Host CPU**:
+Na arquitetura CENT, os bancos DRAM equipados com unidades AiM dispõem apenas de unidades multiplicadoras-acumuladoras (`MAC`), sem suporte a operações aritméticas de propósito geral. O `cent_runtime` implementa essa separação estrita entre **Near-Bank PIM** e **PNM / Host CPU**:
 
 | Operação no Modelo | Onde Executa | Motivo Arquitetural |
 | :--- | :--- | :--- |
@@ -52,7 +54,7 @@ Um ponto importante da arquitetura CENT é que bancos de memória DRAM equipados
 
 ---
 
-## Por Baixo do Capô: C ABI, Pacote de 14 Bytes e SRAM
+## Especificação da C ABI, Pacote de 14 Bytes e Buffer SRAM
 
 Para manter a fronteira previsível entre linguagens, a biblioteca compartilhada `libcent_runtime.so` é compilada com `-std=c++17 -O3 -Wall -Wextra -Werror`, **sem uso de exceções C++ (`throw`/`try-catch`)** no fluxo de controle. Erros são retornados explicitamente via `enum CentStatus` (`0` para sucesso, códigos negativos como `-1` e `-2` para ponteiros nulos ou dimensões inválidas), com funções marcadas como `noexcept`.
 
@@ -107,9 +109,9 @@ Além disso, a função `cent_get_instruction_buffer_hex` permite inspecionar di
 
 ---
 
-## Como Usar na Prática
+## Compilação, Validação e Integração
 
-### Instalação e Validação Local
+### Compilação e Suíte de Testes Local
 
 O projeto é autocontido. Para criar o ambiente virtual, compilar a biblioteca compartilhada `build/libcent_runtime.so` e rodar os testes e a demonstração:
 
@@ -156,7 +158,7 @@ Caso `torch` não esteja instalado no ambiente, o pacote faz *fallback* automát
 
 ---
 
-## Números Validados no Llama-2 7B
+## Validação Experimental no Llama-2 7B
 
 O script `examples/llama2_7b_demo.py` exercita duas camadas reais do Llama-2 7B (considerando precisão BF16 de 2 bytes/elemento na estimativa de tráfego externo frente ao baseline de GPU movendo pesos da HBM):
 
@@ -165,7 +167,7 @@ O script `examples/llama2_7b_demo.py` exercita duas camadas reais do Llama-2 7B 
 | **Atenção** (`q/k/v/o proj`) | `4096 × 4096` | `0` | `1.025` (`256` blocos × 4 + `1`) | `14.350 B` | `~32,01 MB` vs. `16,00 KB` (**99,95%** menos) | `16.416` |
 | **MLP** (`gate/up/down proj`) | `11008 × 4096` | `1` | `2.753` (`688` blocos × 4 + `1`) | `38.542 B` | Apenas ativação + saída no barramento | `44.064` (`2,68x`) |
 
-Repare na consistência física entre as camadas: como a camada MLP tem `11.008 / 4.096 = 2,6875x` mais linhas de saída do que a camada de Atenção, tanto o total de instruções geradas na SRAM quanto os ciclos `CH31_AiM_ISR_WR_GB_cycles` medidos no simulador escalam exatamente na mesma proporção (`2,68x`).
+Verifica-se escalabilidade proporcional entre as camadas: como a camada MLP possui `11.008 / 4.096 = 2,6875x` mais linhas de saída do que a camada de Atenção, tanto o total de instruções geradas na SRAM quanto os ciclos `CH31_AiM_ISR_WR_GB_cycles` medidos no simulador escalam na mesma razão (`~2,68x`).
 
 ---
 

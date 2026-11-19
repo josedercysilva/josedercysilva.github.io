@@ -1,16 +1,18 @@
-Imagine trying to accelerate the inference of a Large Language Model (LLM) such as Llama-2 7B during token-by-token text generation. In this phase — known as *decoding* — execution is not bottlenecked by GPU compute capacity, but by the **Memory Wall**: for every new token, gigabytes of model weights must travel from memory to compute units just to perform vector-matrix multiplications (`GEMV`, `batch_size = 1`).
+## Context and Motivation
 
-The **CENT** architecture (*PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*, Gu et al., **ASPLOS 2025**) tackles this bottleneck by inverting the traditional model: instead of moving weights to the processor, it executes operations near the memory banks (**Near-Bank PIM**) inside **GDDR6-AiM** modules connected over **CXL 3.0**.
+During the *decoding* phase of Large Language Model (LLM) inference such as Llama-2 7B (`batch_size = 1`), throughput is constrained by memory bandwidth (**Memory Wall**) rather than GPU compute capacity. For each generated token, gigabytes of stationary model weights must be transferred from memory to compute units solely to execute vector-matrix multiplications (`GEMV`).
 
-While studying this architecture at UFAM, I ran into a practical gap: CENT's official simulator (`aim_simulator`, built on **Ramulator 2.0**) is a closed C++ binary that only consumes static trace files (`.trace`). There was no runtime layer connecting real machine learning frameworks to the architecture's execution model.
+The **CENT** architecture (*PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*, Gu et al., **ASPLOS 2025**) mitigates this bottleneck by offloading `GEMV` operations to **Near-Bank PIM** units integrated into **GDDR6-AiM** memory banks coupled over **CXL 3.0**.
 
-To bridge that gap, I built [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime): a **C++17** runtime and hardware dispatcher with a native **C ABI** boundary that lets **PyTorch** and **NumPy** linear layers run directly on top of the CENT ISA dispatch model.
+However, the reference simulator for the architecture (`aim_simulator`, built on **Ramulator 2.0**) operates strictly as a standalone C++ binary consuming static trace files (`.trace`), with no programmatic interface for machine learning frameworks.
+
+This technical report documents the architecture and implementation of [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime): a **C++17** runtime and hardware dispatcher with a native **C ABI** boundary, developed at UFAM to connect **PyTorch** and **NumPy** linear layers directly to the CENT ISA dispatch model and Ramulator 2.0 trace generation.
 
 ---
 
 ## Architecture Overview
 
-`cent_runtime` follows the same integration philosophy used by libraries such as `libcudart` and `libcublas`: Python code has no knowledge of hardware registers or memory alignment details and simply invokes a stable C boundary (`extern "C"`).
+`cent_runtime` adopts the same binary integration pattern used by libraries such as `libcudart` and `libcublas`: the Python layer has no direct dependency on hardware registers or memory alignment details and communicates exclusively through a stable C boundary (`extern "C"`).
 
 ```text
 +-----------------------------------------------------------------------+
@@ -40,19 +42,19 @@ To bridge that gap, I built [`cent_runtime`](https://github.com/josedercysilva/c
 
 ---
 
-## What Runs on PIM and What Stays in PyTorch
+## Execution Partitioning: PIM vs. Host CPU
 
-A key aspect of the CENT architecture is that AiM-equipped DRAM banks only contain multiply-accumulate (`MAC`) units, rather than full general-purpose ALUs. `cent_runtime` mirrors this exact split between **PIM** (DRAM banks) and **PNM / Host CPU**:
+In the CENT architecture, AiM-equipped DRAM banks include only multiply-accumulate (`MAC`) units, without support for general-purpose arithmetic operations. `cent_runtime` enforces this strict separation between **Near-Bank PIM** and **PNM / Host CPU**:
 
-| Model Operation | Where It Executes | Architectural Rationale |
+| Model Operation | Execution Target | Architectural Rationale |
 | :--- | :--- | :--- |
 | Dense linear projections (`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`) with `batch_size = 1` | **`cent_runtime` (Near-Bank PIM)** | `GEMV` operations dominate weight memory traffic (>99%) during *decoding* |
-| `Softmax`, `RMSNorm`, `SiLU`, `RoPE` | **Host CPU (native PyTorch)** | Non-linear operations, reductions, and transcendental functions stay on host / PNM |
+| `Softmax`, `RMSNorm`, `SiLU`, `RoPE` | **Host CPU (native PyTorch)** | Non-linear operations, reductions, and transcendental functions remain on host / PNM |
 | *Prefill* phase (`batch_size > 1`) or 3D+ tensors | **Host CPU (rejected by PIM ABI)** | The dispatcher strictly enforces the `GEMV` contract and raises `ValueError` for `GEMM` |
 
 ---
 
-## Under the Hood: C ABI, 14-Byte Packet, and SRAM
+## C ABI Specification, 14-Byte Packet, and SRAM Buffer
 
 To keep the cross-language boundary predictable, the shared library `libcent_runtime.so` is compiled with `-std=c++17 -O3 -Wall -Wextra -Werror`, **without C++ exceptions (`throw`/`try-catch`)** in the control flow. Errors are returned explicitly through `enum CentStatus` (`0` for success, negative codes such as `-1` and `-2` for null pointers or invalid dimensions), with functions marked `noexcept`.
 
@@ -103,15 +105,15 @@ AiM RD_MAC 0 0xffffffff
 AiM EOC
 ```
 
-Additionally, `cent_get_instruction_buffer_hex` lets you inspect the *hex dump* of the first 64 bytes written into the emulated SRAM.
+Additionally, `cent_get_instruction_buffer_hex` exposes the *hex dump* of the first 64 bytes written into the emulated SRAM.
 
 ---
 
-## Practical Usage
+## Build, Validation, and Integration
 
-### Installation and Local Validation
+### Build and Local Test Suite
 
-The project is self-contained. To create the virtual environment, compile the shared library `build/libcent_runtime.so`, and run the test suites and demo:
+The project is self-contained. To create the virtual environment, compile the shared library `build/libcent_runtime.so`, and run the test suites and benchmark demo:
 
 ```bash
 git clone https://github.com/josedercysilva/cent-pim-runtime.git
@@ -125,11 +127,11 @@ make test-core   # Native C++ testbench
 make demo        # Demonstration with real Llama-2 7B layers
 ```
 
-> **About Ramulator 2.0:** The cycle-accurate hardware simulator is **100% optional**. The C++ core independently computes numerical outputs, the SRAM *hex dump*, instruction counts, and traffic telemetry. Ramulator is only invoked when you pass `simulate=True` or run `make simulate`.
+> **About Ramulator 2.0:** The cycle-accurate hardware simulator is **100% optional**. The C++ core independently computes numerical outputs, the SRAM *hex dump*, instruction counts, and traffic telemetry. Ramulator is only invoked when `simulate=True` is passed or `make simulate` is executed.
 
-### PyTorch Example
+### PyTorch Integration Example
 
-In Python, simply swap a `GEMV` linear projection for `cent_runtime.matmul` and continue running activations normally on the CPU:
+In Python, a `GEMV` linear projection is dispatched via `cent_runtime.matmul`, while non-linear activations remain on the CPU:
 
 ```python
 import torch
@@ -156,7 +158,7 @@ If `torch` is not installed in the environment, the package automatically falls 
 
 ---
 
-## Validated Numbers on Llama-2 7B
+## Experimental Validation on Llama-2 7B
 
 The `examples/llama2_7b_demo.py` script exercises two real Llama-2 7B layers (assuming BF16 precision at 2 bytes/element when estimating external bus traffic against a GPU baseline streaming weights out of HBM):
 
@@ -165,7 +167,7 @@ The `examples/llama2_7b_demo.py` script exercises two real Llama-2 7B layers (as
 | **Attention** (`q/k/v/o proj`) | `4096 × 4096` | `0` | `1,025` (`256` blocks × 4 + `1`) | `14,350 B` | `~32.01 MB` vs. `16.00 KB` (**99.95%** less) | `16,416` |
 | **MLP** (`gate/up/down proj`) | `11008 × 4096` | `1` | `2,753` (`688` blocks × 4 + `1`) | `38,542 B` | Activation + output only on the bus | `44,064` (`2.68x`) |
 
-Notice the physical consistency between the layers: because the MLP layer has `11,008 / 4,096 = 2.6875x` more output rows than the Attention layer, both the total instructions emitted into SRAM and the `CH31_AiM_ISR_WR_GB_cycles` counter reported by the simulator scale in the exact same proportion (`2.68x`).
+Proportional scaling is observed across layers: since the MLP layer has `11,008 / 4,096 = 2.6875x` more output rows than the Attention layer, both total instructions emitted into SRAM and the `CH31_AiM_ISR_WR_GB_cycles` counter reported by the simulator scale by the same factor (`~2.68x`).
 
 ---
 
