@@ -1,67 +1,68 @@
-The **CENT** architecture (*PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*, Gu et al., **ASPLOS 2025**) proposes running *Large Language Model* (LLM) inference without GPUs, replacing expensive HBM memory with **GDDR6-AiM** modules connected over **CXL 3.0**.
+The CENT architecture (*PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*, Gu et al., ASPLOS 2025) proposes running Large Language Model (LLM) inference without GPUs, replacing HBM memory with GDDR6-AiM modules connected over CXL 3.0.
 
-While the analytical and simulation gains presented in the paper are substantial, a practical gap separates academic figures from real execution: there is no system layer capable of accepting **PyTorch** tensors and dispatching them onto the architecture's execution model.
+While the analytical and simulation gains reported in the paper are substantial, a practical gap separates academic results from software execution: there is no system layer capable of taking PyTorch tensors and dispatching them onto the architecture's execution model.
 
-This technical report documents the architectural context, the physical bottlenecks motivating the design, the role of a **hardware dispatcher**, how the official simulator (**`aim_simulator` / Ramulator 2.0**) works, and the implementation of [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime) — a **C++17 + C ABI + Python** bridge connecting linear layers of models such as **Llama-2 7B** to the CENT instruction set architecture. The seminar slide deck accompanying this work is also available at the repository root in [`apresentacao_cent.pdf`](https://github.com/josedercysilva/cent-pim-runtime/blob/main/apresentacao_cent.pdf).
+This technical report documents the architectural context, the physical bottlenecks motivating the project, the role of a hardware dispatcher, how the official simulator (`aim_simulator` / Ramulator 2.0) operates, and the implementation of [`cent_runtime`](https://github.com/josedercysilva/cent-pim-runtime) — a C++17, C ABI, and Python library connecting linear layers of models such as Llama-2 7B to the CENT instruction set architecture. The seminar slide deck accompanying this work is available at the repository root in [`apresentacao_cent.pdf`](https://github.com/josedercysilva/cent-pim-runtime/blob/main/apresentacao_cent.pdf).
 
 ---
 
 ## Table of Contents
 
-1. **Fundamentals and the *Memory Wall* Bottleneck** — Classical memory hierarchy, DRAM bottleneck anatomy, and the *Prefill* (`GEMM`) vs. *Decoding* (`GEMV`) duality.
-2. **The CENT Architecture (ASPLOS '25)** — *GPU-Free* CXL 3.0 topology, PIM/PNM microarchitecture, measured gains, and critical limitations.
-3. **What `aim_simulator` (Ramulator 2.0) Is** — How the paper's cycle-accurate simulator works and why it cannot talk to PyTorch on its own.
-4. **What a *Hardware Dispatcher* Is** — The role of the intermediary layer between AI frameworks and the memory controller/hardware.
-5. **Our Implementation: Anatomy of `cent_runtime`** — Python layer (`ops.py`, `_bindings.py`, `simulator.py`), C ABI boundary (`extern "C"`), 14-byte binary packet (`CentInstruction`), 2 MB SRAM buffer, and C++17 trace emitter.
-6. **Validation on Llama-2 7B** — Exact metrics for Attention (`4K×4K`) and MLP (`11K×4K`), 99.95% bus traffic savings, SRAM *hex dump*, and practical usage.
-7. **Conclusion and References** — What the implementation solves today, its boundaries, and references to the code and foundational work.
+1. Fundamentals and the Memory Wall Bottleneck
+2. The CENT Architecture (ASPLOS '25)
+3. The Official Simulator: `aim_simulator` (Ramulator 2.0)
+4. Role of the Hardware Dispatcher
+5. Implementation of `cent_runtime`
+6. Validation on Llama-2 7B
+7. Conclusion and References
 
 ---
 
-## 1. Fundamentals and the *Memory Wall* Bottleneck
+## 1. Fundamentals and the Memory Wall Bottleneck
 
-In classical computer architecture (Patterson & Hennessy, Ch. 5), the memory hierarchy balances speed, capacity, and cost through a well-known tiering:
+In classical computer architecture (Patterson & Hennessy, Ch. 5), the memory hierarchy balances speed, capacity, and cost across successive tiers:
 
 ```text
 CPU / GPU  <--->  L1 Cache  <--->  L2 Cache  <--->  L3 Cache  <--->  Main Memory (DRAM)  <--->  SSD / Disk
  (fastest, smallest capacity)                                                        (slowest, largest capacity)
 ```
 
-This arrangement works well when **temporal and spatial locality** hold — that is, when data fetched from DRAM is reused dozens or hundreds of times inside caches before eviction. LLM inference breaks this assumption during its dominant execution phase.
+This organization relies on temporal and spatial locality: a block fetched from DRAM must be reused dozens or hundreds of times in caches before eviction. LLM inference breaks this assumption during its longest execution phase.
 
-### Physical Anatomy of the DRAM Bottleneck
+### Physical Bottleneck at the DRAM Boundary
 
-Inside a DRAM chip, data is organized into 2D cell arrays. When a row is activated, an entire block of **8,192 bits** is loaded at once into the internal **Row Buffer** in roughly 1 internal access cycle — meaning **massive bandwidth exists inside the memory die itself**.
+Inside a DRAM chip, data is organized into two-dimensional cell arrays. Activating a row loads an entire 8,192-bit block at once into the internal Row Buffer in roughly 1 internal access cycle — meaning high internal bandwidth exists within the memory die itself.
 
-The bottleneck arises at the chip boundary. To move those 8,192 bits to the processor (CPU or GPU), everything must pass through the **external bus** and physical I/O pins operating at roughly **64 bits per cycle** (or 32 bits in specific pin configurations). It takes roughly **128 bus cycles just to transfer a single row** that was already sitting ready in the *Row Buffer*. While data streams over the bus, GPU compute cores enter a **stall** state waiting on memory.
+The bottleneck sits at the chip's output interface. Moving those 8,192 bits to the processor (CPU or GPU) requires crossing the external bus and physical I/O pins operating at roughly 64 bits per cycle (or 32 bits in specific pin configurations). Transferring a single row that was already sitting in the Row Buffer takes roughly 128 bus cycles. While data crosses the bus, GPU compute units remain in a *stall* state waiting on memory.
 
-### The *Prefill* (`GEMM`) vs. *Decoding* (`GEMV`) Duality
+### Prefill (`GEMM`) vs. Decoding (`GEMV`)
 
-LLM inference runs in two phases with opposite physical execution profiles:
+LLM inference splits into two phases with opposite physical profiles:
 
-| Characteristic | Phase 1: *Prefill* (Initial Prompt) | Phase 2: *Decoding* (Token-by-Token Generation) |
+| Characteristic | Phase 1: Prefill (Initial Prompt) | Phase 2: Decoding (Token-by-Token Generation) |
 | :--- | :--- | :--- |
-| **Share of total runtime** | ~2% of inference time | **~98% of inference time** |
-| **Mathematical operation** | Matrix × Matrix (`GEMM`, e.g., `4K×4K` × `4K×4K`) | Vector × Matrix (`GEMV`, `batch_size = 1`) |
-| **Arithmetic intensity** | High (~2,000 Ops/Byte) | Very low (**1 to 16 Ops/Byte**) |
-| **Execution regime** | **Compute-Bound** (saturates *Tensor Cores*) | **Memory-Bound** (pinned to memory bandwidth) |
+| Share of total runtime | ~2% of inference time | ~98% of inference time |
+| Mathematical operation | Matrix × Matrix (`GEMM`, e.g., `4K×4K` × `4K×4K`) | Vector × Matrix (`GEMV`, `batch_size = 1`) |
+| Arithmetic intensity | High (~2,000 Ops/Byte) | Low (1 to 16 Ops/Byte) |
+| Execution regime | Compute-Bound (saturates Tensor Cores) | Memory-Bound (limited by memory bandwidth) |
 
-During *decoding*, generating each token requires streaming entire weight matrices (tens of megabytes per layer, totaling tens of gigabytes across the full model) only to perform a single vector-matrix product and immediately discard the weights. On a **4× NVIDIA A100** node, this lack of reuse limits *Tensor Core* utilization to roughly **21%** (**79% of cycles spent stalled** waiting on HBM).
+During decoding, generating each token requires reading entire weight matrices (tens of megabytes per layer, totaling tens of gigabytes across the model) only to compute a single vector-matrix product and discard the weights immediately after. On a 4× NVIDIA A100 node, this lack of reuse drops effective Tensor Core utilization to roughly 21% (with 79% of execution time spent stalled on HBM reads).
 
 ---
 
 ## 2. The CENT Architecture (ASPLOS '25)
 
-The core idea of **Processing-in-Memory (PIM)** — specifically the **GDDR6-AiM** (*Accelerator-in-Memory*) design used in CENT — is to place small Arithmetic Logic Units (**ALUs / PUs** with multiply-accumulate units) directly next to each DRAM bank, before the narrow I/O pin bottleneck.
+Processing-in-Memory (PIM) — specifically the GDDR6-AiM (*Accelerator-in-Memory*) design adopted in CENT — places multiply-accumulate execution units (PUs/ALUs) directly beside each DRAM bank, ahead of the narrow I/O pin interface.
 
-Each GDDR6-AiM chip therefore consumes weights directly at the output of the *Row Buffer* without wasting energy and cycles crossing the external bus:
-* An **NVIDIA A100** delivers roughly **2 TB/s** of peak HBM2e bandwidth.
-* A **GDDR6-PIM** device reaches up to **16 TB/s** of effective internal bandwidth.
-* Across a full **32-device CENT** system, aggregate internal bandwidth reaches **512 TB/s**.
+Each GDDR6-AiM chip therefore consumes weights directly at the Row Buffer output without streaming weight matrices over the external bus:
 
-### Global Topology and Internal Microarchitecture
+- **NVIDIA A100:** delivers roughly 2 TB/s of peak HBM2e bandwidth.
+- **GDDR6-PIM device:** reaches up to 16 TB/s of aggregate internal bank bandwidth.
+- **CENT system (32 devices):** aggregates up to 512 TB/s of total internal bandwidth.
 
-Instead of relying on dedicated GPUs and costly HBM interposers, CENT connects a **Host CPU** to **32 CXL 3.0 devices** through a 48-port **CXL Switch**:
+### CXL 3.0 Topology and Internal Microarchitecture
+
+Instead of dedicated GPUs and HBM interposers, CENT connects a Host CPU to 32 CXL 3.0 devices through a 48-port CXL Switch:
 
 ```text
                        +------------+
@@ -86,30 +87,33 @@ Instead of relying on dedicated GPUs and costly HBM interposers, CENT connects a
         +---> 16x PIM Ctrl ---> 16x GDDR6-PIM (32 channels per board)
 ```
 
-Inside each of the 32 CXL devices, computation is partitioned into two complementary tiers:
-1. **PIM Units (inside DRAM banks):** execute >99% of *decoding* math — dense linear projections (`GEMV`) — reading the activation vector from a *Global Buffer* and accumulating dot products in parallel across all 16 banks of each channel.
-2. **PNM (*Processing-Near-Memory*) Units + Host CPU:** handle lightweight operations (<1% of FLOPs) requiring non-linear logic or cross-channel global reductions such as `Softmax`, `RMSNorm`, `SiLU`, and `RoPE`, transferring only compact partial vectors (<16 KB) instead of entire weight matrices.
+Inside each CXL device, execution is divided across two tiers:
 
-### What the Paper's Results Show (Gains and Limitations)
+1. **PIM Units (DRAM banks):** execute over 99% of decoding arithmetic — dense linear projections (`GEMV`) — reading the input vector from a Global Buffer and accumulating dot products in parallel across the 16 banks of each channel.
+2. **PNM (Processing-Near-Memory) Units and Host CPU:** run the remaining operations (<1% of arithmetic volume) requiring non-linear logic or cross-channel reductions such as `Softmax`, `RMSNorm`, `SiLU`, and `RoPE`, transferring only compact partial vectors (<16 KB).
 
-In benchmarks against a **4× NVIDIA A100** server (80 GB each):
-* ***Decoding* performance:** CENT achieves up to **4.13× higher tokens/s** on Llama-2 13B (**2.97×** on 7B) and **2.32×** geometric mean overall (*end-to-end*), since *decoding* dominates 98% of total latency.
-* **Energy efficiency and cost:** each CXL board draws ~32.4 W (vs. ~300 W per GPU), delivering **2.88× more tokens per Joule** (up to **4.26×** during *decoding*) at roughly **\$14,873** (CPU + 512 GB GDDR6-PIM + controllers + CXL switch) compared to **\$42,128** for the 4× A100 cluster — around **3× lower hardware cost**.
+### Reported Gains and Architectural Limitations
 
-On the other hand, a critical technical assessment also highlights **three real limitations** of the architecture:
-1. **Slow Prefill (0.33× to 0.46×):** small DRAM-bank ALUs lack the dense matrix throughput of *Tensor Cores*. Long prompts (such as 32k-token RAG workloads) suffer severe prefill slowdown.
-2. **Scaling bottleneck above 70B:** *decoding* speedup drops from **4.13×** (13B) to **1.25×** (70B) as inter-board communication across the CXL switch grows.
-3. **Software and ISA barrier:** CENT introduces a custom ISA (CENT ISA) with no native PyTorch, vLLM, or mature ecosystem comparable to 15+ years of CUDA tooling.
+In the paper's evaluation against a 4× NVIDIA A100 server (80 GB per GPU):
 
-This third barrier — the **missing link between high-level ML software and the CENT simulator/hardware** — is what our work addresses.
+- **Decoding throughput:** CENT reaches up to 4.13× higher tokens/s on Llama-2 13B (2.97× on 7B) and 2.32× geometric mean overall (*end-to-end*), since decoding accounts for 98% of total runtime.
+- **Energy efficiency and cost:** each CXL board draws ~32.4 W (vs. ~300 W for a GPU), delivering 2.88× more tokens per Joule (up to 4.26× during decoding) at an estimated hardware cost of \$14,873 (CPU + 512 GB GDDR6-PIM + controllers + CXL switch) compared to \$42,128 for the 4× A100 node.
+
+At the same time, the architecture has three clear technical limitations:
+
+1. **Slow prefill (0.33× to 0.46×):** in-bank DRAM arithmetic units lack the dense matrix throughput of GPU Tensor Cores. On long prompts (such as 32k-token RAG workloads), prefill latency degrades overall response time.
+2. **Scaling above 70B:** decoding speedup drops from 4.13× (13B) to 1.25× (70B) as inter-board communication across the CXL switch increases.
+3. **Missing software stack:** CENT defines a custom instruction set (CENT ISA) without native integration into PyTorch or mature libraries comparable to the CUDA ecosystem.
+
+This third gap is the focus of our work: building the system layer that connects high-level tensors to the architecture's instruction format and cycle-accurate simulator.
 
 ---
 
-## 3. What `aim_simulator` (Ramulator 2.0) Is
+## 3. The Official Simulator: `aim_simulator` (Ramulator 2.0)
 
-To validate the microarchitecture prior to tape-out, the CENT authors released **`aim_simulator`**, built as an extension of **Ramulator 2.0** (one of the most widely adopted cycle-accurate DRAM simulators in computer architecture research).
+To validate the microarchitecture, the CENT authors released `aim_simulator`, built on top of Ramulator 2.0 (a cycle-accurate academic DRAM simulator).
 
-In practice, `aim_simulator` compiles into a `ramulator2` binary (backed by `libramulator.so`). It is **not an AI runtime** and does not evaluate neural networks; it is a **discrete-event hardware simulator** structured as follows:
+`aim_simulator` compiles into a `ramulator2` executable (paired with `libramulator.so`). It is not a neural network runtime, but a discrete-event hardware simulator:
 
 ```text
   [ configs/gddr6_aim.yaml ] ──┐
@@ -122,32 +126,32 @@ In practice, `aim_simulator` compiles into a `ramulator2` binary (backed by `lib
    CENT ISA commands)
 ```
 
-When invoked via CLI (`ramulator2 -f configs/gddr6_aim.yaml -t file.trace`), it simulates every *Row Buffer* access, bank conflict, command scheduler decision (`FRFCFS`), refresh (`AllBank`), and AiM instruction cycle-by-cycle across **32 GDDR6-AiM channels**, outputting exact cycle counters per instruction class.
+When invoked from the command line (`ramulator2 -f configs/gddr6_aim.yaml -t file.trace`), it models Row Buffer accesses, bank conflicts, `FRFCFS` command scheduling, `AllBank` refresh, and AiM instructions cycle by cycle across 32 GDDR6-AiM channels, printing per-instruction cycle counters on completion.
 
-### Why `aim_simulator` Alone Cannot Serve Software Pipelines
+### Limitations for Software Integration
 
-1. **Consumes only static `.trace` files:** users must manually generate text files containing `AiM WR_GB`, `AiM MAC_ABK`, etc., already decomposed into rows and physical addresses.
-2. **Computes no numerical outputs:** the simulator models *timing and cycles*, not floating-point weights, so it cannot return an output tensor `y` to feed subsequent Transformer layers in PyTorch.
-3. **Research-grade build dependencies:** as an academic artifact, compiling it relies on pinned `gcc`/`cmake` toolchains, making direct embedding inside standard Python ML pipelines impractical.
-
----
-
-## 4. What a *Hardware Dispatcher* Is
-
-In systems architecture, a **dispatcher** is the low-level software layer sitting between a high-level application framework and an accelerator device. When you run `torch.matmul(x, W)` on an NVIDIA GPU, PyTorch does not touch GPU registers directly: it routes through the *PyTorch Dispatcher* into native C/C++ libraries (`libcudart.so`, `libcublas.so`) acting as hardware intermediaries.
-
-For CENT, a **hardware dispatcher** must fulfill four well-defined responsibilities:
-
-1. **Interception and Scope Validation:** receive Python tensors and verify that the operation respects the accelerator's physical contract (for CENT PIM, vector-matrix multiplication `GEMV` with `batch_size = 1`). Any *prefill* `GEMM` (`batch > 1`) is rejected from PIM offload so the host handles it.
-2. **Topology Routing:** select **which of the 32 CXL boards** (`DVid`) hosts the layer and **which of the 32 GDDR6 channels** (`CHmask`) are active for the hidden dimension `K`.
-3. **Lowering to the Hardware ISA:** decompose the `[M × K]` weight matrix into blocks matching the **16 DRAM banks** per channel, encode each step into binary **CENT ISA** packets inside the 2 MB instruction buffer (SRAM), and optionally emit a `.trace` file.
-4. **Telemetry Collection and Numerical Integrity:** compute the output vector `y` directly into PyTorch's destination memory (keeping the neural network executable end-to-end) and return auditable counts of emitted instructions and saved bus traffic.
+1. **Consumes only static `.trace` files:** requires pre-generating text files containing `AiM WR_GB`, `AiM MAC_ABK`, etc., already decomposed into physical rows and channel masks.
+2. **No numerical computation:** the simulator tracks timing and cycle counts without multiplying floating-point weights or producing an output tensor `y` for the next model layer.
+3. **Toolchain coupling:** as a research artifact, building it depends on specific C++ and CMake toolchains, making direct embedding inside standard Python environments impractical.
 
 ---
 
-## 5. Our Implementation: Anatomy of `cent_runtime`
+## 4. Role of the Hardware Dispatcher
 
-**`cent_runtime`** implements this dispatcher as a clean two-layer architecture — **Python (PyTorch/NumPy)** calling **C++17** across a **stable C ABI (`libcent_runtime.so`)** — plus an optional automated bridge to `aim_simulator` (`ramulator2`).
+In systems software, a dispatcher is the intermediary layer sitting between a high-level framework and the accelerator controller. When PyTorch runs `torch.matmul(x, W)` on a GPU, the call passes through the internal dispatcher into native C/C++ libraries (`libcudart.so`, `libcublas.so`) that configure and submit work to the device.
+
+For CENT, the hardware dispatcher fulfills four responsibilities:
+
+1. **Physical contract validation:** inspects incoming Python tensor shapes and enforces vector-matrix multiplication (`GEMV`, `batch_size = 1`). Prefill `GEMM` calls (`batch_size > 1`) are rejected so they remain on the host.
+2. **Topology routing:** determines which of the 32 CXL devices (`DVid`) hosts the layer and which of the 32 GDDR6 channels (`CHmask`) are enabled for dimension `K`.
+3. **Lowering to the CENT ISA:** partitions the `[M × K]` weight matrix into blocks aligned to the 16 DRAM banks per channel, writes the binary descriptors into the 2 MB SRAM buffer, and emits the corresponding `.trace` file.
+4. **Numerical integrity and telemetry:** computes the resulting vector `y` directly into PyTorch's output buffer and returns instruction counts, SRAM byte usage, and saved bus traffic.
+
+---
+
+## 5. Implementation of `cent_runtime`
+
+`cent_runtime` structures this dispatcher into two main layers — Python (PyTorch/NumPy) and C++17 connected across a stable C ABI (`libcent_runtime.so`) — plus an optional integration module for `ramulator2`.
 
 ```text
 +-----------------------------------------------------------------------------+
@@ -176,29 +180,26 @@ For CENT, a **hardware dispatcher** must fulfill four well-defined responsibilit
                   +---> .trace file (CENT ISA) ---> simulator.py -> ramulator2
 ```
 
-Below is a breakdown of each component.
-
 ### 5.1. Python Layer (`python/cent_runtime/`)
 
-The Python package exports `cent_runtime.matmul`, `simulate_on_ramulator`, and `get_instruction_buffer_hex`:
+The Python package exposes `cent_runtime.matmul`, `simulate_on_ramulator`, and `get_instruction_buffer_hex`:
 
-* **`ops.py` (Strict validation and direct `ctypes` pointer handoff):** accepts both `torch.Tensor` and `numpy.ndarray` (automatically falling back to NumPy when PyTorch is absent). Before crossing into C, it strictly validates the `GEMV` contract: `x` must have shape `(K,)` or `(1, K)`, `W` must have shape `(M, K)`, and the inner dimension `K` must match. 3D+ tensors or `batch_size > 1` immediately raise `ValueError` explaining that Near-Bank PIM banks strictly execute `GEMV` (*decoding*). It then ensures contiguous `float32` memory (avoiding extra copies when the tensor already resides contiguously in `float32` on CPU), allocates the output buffer `y` matching `(M,)` or `(1, M)`, and passes raw pointers directly through `ctypes` without serialization or IPC.
-* **`_bindings.py` (Native loading and telemetry):** locates `build/libcent_runtime.so` (automatically running `make shared` if missing) and maps the `CentDispatchTelemetry` struct (56 bytes under x86_64 natural alignment) into a clean Python dictionary.
-* **`simulator.py` (Optional Ramulator 2.0 bridge):** when `simulate=True` (creating a temporary `.trace` via `tempfile` if `trace_path=None` so disk stays clean), locates `ramulator2` in portable order (explicit `ramulator_bin` → `CENT_RAMULATOR_BIN` → `external/ramulator2` → `../CENT/aim_simulator/build/ramulator2` → `PATH`), runs `[ramulator_bin, "-f", config_path, "-t", trace_path]` via `subprocess`, and parses `wr_gb_cycles`, `mac_abk_cycles`, and `memory_system_cycles`.
+- **`ops.py`:** accepts `torch.Tensor` or `numpy.ndarray` (falling back to NumPy when PyTorch is not installed). Validates `x` as `(K,)` or `(1, K)` and `W` as `(M, K)`. 3D+ tensors or `batch_size > 1` raise `ValueError`. It then ensures a contiguous `float32` layout on CPU (performing no extra copy when the tensor already satisfies this layout), allocates the output tensor `y`, and passes raw memory pointers directly via `ctypes`.
+- **`_bindings.py`:** loads `build/libcent_runtime.so` (running `make shared` automatically if the library has not been built yet) and maps the C struct `CentDispatchTelemetry` (56 bytes on x86_64) into a Python dictionary.
+- **`simulator.py`:** when `simulate=True` (creating a temporary `.trace` file via `tempfile` if `trace_path=None`), resolves the `ramulator2` binary in configurable order (explicit `ramulator_bin` → `CENT_RAMULATOR_BIN` environment variable → `external/ramulator2` → `../CENT/aim_simulator/build/ramulator2` → `PATH`), invokes the simulator via `subprocess`, and extracts `wr_gb_cycles`, `mac_abk_cycles`, and `memory_system_cycles`.
 
-### 5.2. Why a Separate C ABI Gate (`.h`) in Front of the C++17 Engine (`.hpp`)?
+### 5.2. C ABI Boundary (`.h`) and C++17 Core (`.hpp`)
 
-In C++, namespaced or overloaded functions undergo **Name Mangling**. A symbol like `cent::compute_dvid(int)` turns into `_ZN4cent12compute_dvidEi` in the object file, and C++ has no universal binary ABI across compilers (GCC, Clang, and MSVC lay out *vtables*, exceptions, and symbols differently).
+In C++, namespaced or overloaded functions undergo *name mangling* (for instance, `cent::compute_dvid(int)` becomes `_ZN4cent12compute_dvidEi` in the symbol table), and the C++ ABI differs across compilers. To guarantee direct FFI interoperability with `ctypes`, the codebase separates:
 
-By contrast, **C** is the lingua franca of operating systems and FFI (*Foreign Function Interface*) layers. Therefore, `cent_runtime` cleanly separates:
-* **`.h` headers (`isa.h`, `telemetry.h`, `runtime_api.h`):** public boundary wrapped in `#ifdef __cplusplus extern "C" { #endif`. Exported symbols in `build/libcent_runtime.so` remain unmangled (`cent_init_runtime`, `cent_dispatch_gemv`, `cent_get_instruction_buffer_hex`), directly callable from Python `ctypes`.
-* **`.hpp` headers (`topology.hpp`, `sram_buffer.hpp`, `isa_emitter.hpp`):** internal **modern C++17** code using `namespace cent`, classes, RAII, and `std::array`.
+- **`.h` headers (`isa.h`, `telemetry.h`, `runtime_api.h`):** public interface declared under `extern "C"`, exporting unmangled symbols (`cent_init_runtime`, `cent_dispatch_gemv`, `cent_get_instruction_buffer_hex`).
+- **`.hpp` headers (`topology.hpp`, `sram_buffer.hpp`, `isa_emitter.hpp`):** internal C++17 implementation using `namespace cent`, classes, RAII, and `std::array`.
 
-In addition, the entire core is compiled with `-std=c++17 -O3 -fPIC -Wall -Wextra -Werror` and **zero C++ exceptions (`throw` / `try-catch`)** on the control path. Boundary functions are marked `noexcept`, and errors return explicit `enum CentStatus` codes (`CENT_OK = 0`, `CENT_ERR_NULL_PTR = -1`, `CENT_ERR_INVALID_SHAPE = -2`, `CENT_ERR_SRAM_OVERFLOW = -3`, `CENT_ERR_TRACE_IO = -4`) with early returns.
+The native library compiles with `-std=c++17 -O3 -fPIC -Wall -Wextra -Werror` and uses no C++ exceptions (`throw` / `try-catch`) across the boundary. All exported functions are marked `noexcept` and return explicit status codes via `enum CentStatus` (`CENT_OK = 0`, `CENT_ERR_NULL_PTR = -1`, `CENT_ERR_INVALID_SHAPE = -2`, `CENT_ERR_SRAM_OVERFLOW = -3`, `CENT_ERR_TRACE_IO = -4`).
 
-### 5.3. The 14-Byte Binary Packet (`CentInstruction`)
+### 5.3. 14-Byte Binary Descriptor (`CentInstruction`)
 
-In `include/cent/isa.h`, we define the controller constants (`CENT_SRAM_BUFFER_BYTES = 2 MB`, `32` CXL devices, `32` channels per device, `16` banks per channel, `64` bursts default operation size), the 5 CENT ISA opcodes, and the packed binary `struct`:
+`include/cent/isa.h` defines the controller parameters (`CENT_SRAM_BUFFER_BYTES = 2 MB`, 32 CXL devices, 32 channels per device, 16 banks per channel, and `opsize = 64` bursts), the 5 CENT ISA opcodes, and the packed binary instruction layout:
 
 ```c
 enum CentOpcode : uint8_t {
@@ -224,42 +225,31 @@ static_assert(sizeof(CentInstruction) == 14,
               "ABI Error: CentInstruction must be exactly 14 bytes packed");
 ```
 
-Combining `#pragma pack(push, 1)` with `static_assert` guarantees at compile time that no hidden alignment *padding* is inserted between fields: each instruction occupies exactly `1 + 1 + 4 + 2 + 4 + 2 = 14` contiguous bytes in SRAM.
+The `#pragma pack(push, 1)` directive verified by `static_assert` eliminates alignment padding between fields, fixing each instruction at 14 contiguous bytes (`1 + 1 + 4 + 2 + 4 + 2`).
 
-### 5.4. Topology, 2 MB SRAM Buffer, and Near-Bank PIM Decomposition
+### 5.4. Topology, 2 MB SRAM Buffer, and Instruction Emission
 
-Once `cent_dispatch_gemv` enters the C++ core (`src/runtime_api.cpp`), four modules execute in sequence:
+During `cent_dispatch_gemv` (`src/runtime_api.cpp`), four stages run in sequence:
 
-1. **Routing (`src/topology.cpp`):**
-   * `DVid = ((layer_id % 32) + 32) % 32` — distributes Transformer layers across the 32 CXL 3.0 devices.
-   * `CHmask`: for `K >= 1024`, enables all 32 channels (`0xFFFFFFFFu`); for `K >= 512`, enables 16 channels (`0x0000FFFFu`); below that, enables 8 channels (`0x000000FFu`).
-2. **2 MB SRAM Emulator (`src/sram_buffer.cpp`):**
-   * `SramBuffer` holds a preallocated static **2 MB** `std::array<uint8_t, CENT_SRAM_BUFFER_BYTES>`, eliminating `new`/`delete` on the critical path. Each instruction is copied via `std::memcpy` if space permits, returning `CENT_ERR_SRAM_OVERFLOW` otherwise.
-   * Also implements `format_hex_dump`, formatting up to the first 64 bytes as uppercase hex byte pairs (16 bytes per line) for binary inspection.
-3. **PIM Block Decomposition and `.trace` Emission (`src/isa_emitter.cpp`):**
-   * Because each GDDR6-AiM channel drives **16 banks in parallel** (*All-Bank PIM*), output dimension `M` is split into `num_blocks = (M + 15) / 16` blocks.
-   * For each block `blk` (`row_addr = blk`), the emitter pushes 4 binary packets into SRAM (`WR_GB` with `opsize=64`, `WR_BIAS` with `opsize=0`, `MAC_ABK` with `opsize=64` and `row_addr=blk`, and `RD_MAC` with `opsize=0`) and, when `trace_path` is provided, writes via `std::ofstream` (RAII) the 4 corresponding `.trace` lines:
-     ```text
-     AiM WR_GB 64 0 0xffffffff
-     AiM WR_BIAS 0 0xffffffff
-     AiM MAC_ABK 64 0xffffffff 0
-     AiM RD_MAC 0 0xffffffff
-     ```
-   * After completing all blocks, emits **1 final `CENT_OP_EOC` instruction** (`AiM EOC` in `.trace`), required for `aim_simulator` to terminate simulation.
-4. **Numerical Computation and Bus Telemetry (`src/runtime_api.cpp` & `src/isa_emitter.cpp`):**
-   * Computes `y = x · W^T` iterating `W` in row-major order with `double` (`FP64`) accumulation cast to `float` (`FP32`), writing directly into the caller-supplied `y` buffer.
-   * Computes external bus traffic savings assuming **BF16** precision (2 bytes/element):
-     * **GPU Baseline (HBM):** `(M × K + K) × 2` bytes (transfers full weight matrix `W` + input `x`).
-     * **CENT CXL 3.0 (Near-Bank PIM):** `(K + M) × 2` bytes (weights remain stationary in DRAM; only input `x` and output `y` cross the bus).
-     * **Savings (%):** `100 × (1 - pcie_traffic_bytes / gpu_traffic_bytes)`.
+1. **Routing (`src/topology.cpp`):** computes `DVid = ((layer_id % 32) + 32) % 32` to distribute layers across the 32 CXL devices. The channel mask `CHmask` enables 32 channels (`0xFFFFFFFFu`) when `K >= 1024`, 16 channels (`0x0000FFFFu`) when `K >= 512`, and 8 channels (`0x000000FFu`) for smaller dimensions.
+2. **2 MB SRAM buffer (`src/sram_buffer.cpp`):** `SramBuffer` manages a preallocated static 2 MB `std::array<uint8_t, CENT_SRAM_BUFFER_BYTES>`, avoiding dynamic allocation (`new`/`delete`) during dispatch. Instructions are copied via `std::memcpy` with bounds checking (`CENT_ERR_SRAM_OVERFLOW`) and can be inspected in hexadecimal through `format_hex_dump`.
+3. **Near-Bank PIM decomposition and `.trace` emission (`src/isa_emitter.cpp`):** since each channel drives 16 banks in parallel, output dimension `M` is partitioned into `num_blocks = (M + 15) / 16` blocks. For each block `blk` (`row_addr = blk`), the emitter writes 4 instructions into SRAM (`WR_GB`, `WR_BIAS`, `MAC_ABK`, and `RD_MAC`) and, when `trace_path` is provided, writes the corresponding lines to the `.trace` file:
+   ```text
+   AiM WR_GB 64 0 0xffffffff
+   AiM WR_BIAS 0 0xffffffff
+   AiM MAC_ABK 64 0xffffffff 0
+   AiM RD_MAC 0 0xffffffff
+   ```
+   After all blocks complete, it emits a `CENT_OP_EOC` instruction (`AiM EOC`), required to terminate simulation in `aim_simulator`.
+4. **Numerical computation and bus telemetry (`src/runtime_api.cpp` and `src/isa_emitter.cpp`):** computes `y = x · W^T` in row-major order using a `double` (`FP64`) accumulator cast to `float` (`FP32`) in the output pointer `y`. Alongside computation, it estimates external bus traffic in BF16 precision (2 bytes per element), comparing the GPU baseline (`(M × K + K) × 2` bytes, transferring both `W` and `x`) against the CENT model (`(K + M) × 2` bytes, where only `x` and `y` cross the bus).
 
 ---
 
 ## 6. Validation on Llama-2 7B
 
-The repository includes a Python unit test suite (`make test`), a native C++ testbench (`make test-core`), and a dedicated demonstration exercising real **Llama-2 7B** layer dimensions (`examples/llama2_7b_demo.py`).
+The repository includes automated Python unit tests (`make test`), a native C++ testbench (`make test-core`), and a validation script exercising real Llama-2 7B layer dimensions (`examples/llama2_7b_demo.py`).
 
-### Running Locally
+### Local Execution
 
 ```bash
 git clone https://github.com/josedercysilva/cent-pim-runtime.git
@@ -270,11 +260,11 @@ source .venv/bin/activate
 
 make test        # Tests C ABI, numerical accuracy, GEMM rejection, SRAM, and .trace
 make test-core   # Native C++ testbench
-make demo        # Runs Llama-2 7B Attention and MLP layers (Ramulator optional)
+make demo        # Runs Llama-2 7B Attention and MLP layers
 make simulate    # Optional: runs Ramulator 2.0 on the generated .trace files
 ```
 
-### PyTorch Usage Example
+### Usage with PyTorch
 
 ```python
 import torch
@@ -288,7 +278,7 @@ W = torch.randn(4096, 4096)     # Stationary weights in GDDR6-AiM memory
 # Dispatch to the C++ runtime (returns PyTorch tensor + telemetry)
 y, telemetry = cent_runtime.matmul(x, W, layer_id=0)
 
-# Non-linear operations continue normally on CPU via PyTorch
+# Non-linear operations remain on CPU via PyTorch
 out = F.silu(y)
 
 print(f"Output: {out.shape}")
@@ -297,23 +287,23 @@ print(f"Instructions: {telemetry['total_instructions']} ({telemetry['instruction
 print(f"Bus traffic saved: {telemetry['memory_traffic_saved_pct']:.2f}%")
 ```
 
-### Audited Metrics (Attention vs. MLP in Llama-2 7B)
+### Audited Metrics: Attention vs. MLP
 
-When executing the **Attention** projection (`q/k/v/o_proj`, `M = 4096, K = 4096, layer_id = 0`) and **MLP** projection (`gate/up/down_proj`, `M = 11008, K = 4096, layer_id = 1`), the metrics match both the analytical model and the cycle-accurate simulator:
+The table below summarizes the results obtained for the Attention projection (`q/k/v/o_proj`, `M = 4096, K = 4096, layer_id = 0`) and the MLP projection (`gate/up/down_proj`, `M = 11008, K = 4096, layer_id = 1`):
 
 | Metric | Attention Layer (`4096 × 4096`) | MLP Layer (`11008 × 4096`) |
 | :--- | :--- | :--- |
-| **CXL Device (`DVid`)** | Board `#0` | Board `#1` |
-| **Active Channels (`CHmask`)** | `0xffffffff` (`32` channels) | `0xffffffff` (`32` channels) |
-| **16-Bank Blocks (`ceil(M/16)`)** | `256` blocks | `688` blocks |
-| **Total Instructions (`4/block + EOC`)** | **`1,025`** (`256×4 + 1`) | **`2,753`** (`688×4 + 1`) |
-| **SRAM Footprint (`14 B/inst`)** | **`14,350` bytes** (`14.01 KB`) | **`38,542` bytes** (`37.64 KB`) |
-| **GPU HBM vs. CENT CXL Traffic (BF16)** | `~32.01 MB` vs. `16.00 KB` (**99.95%** less) | Activation + output only on the bus |
-| **Ramulator 2.0 Cycles (`CH31_AiM_ISR_WR_GB_cycles`)** | **`16,416` cycles** | **`44,064` cycles** |
+| CXL device (`DVid`) | Board `#0` | Board `#1` |
+| Active channels (`CHmask`) | `0xffffffff` (32 channels) | `0xffffffff` (32 channels) |
+| 16-bank blocks (`ceil(M/16)`) | 256 blocks | 688 blocks |
+| Total instructions (`4/block + EOC`) | 1,025 (`256×4 + 1`) | 2,753 (`688×4 + 1`) |
+| SRAM footprint (`14 B/inst`) | 14,350 bytes (14.01 KB) | 38,542 bytes (37.64 KB) |
+| GPU HBM vs. CENT CXL traffic (BF16) | ~32.01 MB vs. 16.00 KB (99.95% lower) | ~86.01 MB vs. 29.50 KB (99.97% lower) |
+| Ramulator 2.0 cycles (`CH31_AiM_ISR_WR_GB_cycles`) | 16,416 cycles | 44,064 cycles |
 
-Notice the physical consistency of the scaling ratio between the two layers: the MLP output dimension is `11,008 / 4,096 = 2.6875×` larger than Attention, and both the number of generated SRAM instructions and the silicon cycles measured by `aim_simulator` scale by **`2.68×`** (`44,064 / 16,416`).
+The ratio between the two layers reflects the matrix dimensions directly: the MLP output dimension is `11,008 / 4,096 = 2.6875×` larger than Attention, and both the total SRAM instruction count and the silicon cycle count reported by `aim_simulator` scale by the same `2.68×` factor (`44,064 / 16,416`).
 
-Inspecting the first SRAM bytes via `cent_get_instruction_buffer_hex` exposes the 14-byte *little-endian* binary packet directly in memory (`opcode = 0x02` for `WR_GB`, `dvid = 0x00`, `channel_mask = FF FF FF FF`, `bank = 00 00`, `row = 00 00 00 00`, `opsize = 64 = 0x0040 -> 40 00`, followed by the start of the second instruction `03 00` = `WR_BIAS`):
+Inspecting the first 16 SRAM bytes via `cent_get_instruction_buffer_hex` shows the first 14-byte packet serialized in *little-endian* order (`opcode = 0x02` for `WR_GB`, `dvid = 0x00`, `channel_mask = FF FF FF FF`, `bank = 00 00`, `row = 00 00 00 00`, `opsize = 64 = 0x0040 -> 40 00`), followed by the first two bytes of the second instruction (`03 00`, `WR_BIAS`):
 
 ```text
 [SRAM] 02 00 FF FF FF FF 00 00 00 00 00 00 40 00 03 00
@@ -323,15 +313,15 @@ Inspecting the first SRAM bytes via `cent_get_instruction_buffer_hex` exposes th
 
 ## 7. Conclusion and References
 
-`cent_runtime` bridges computer architecture research and systems software engineering:
+`cent_runtime` connects the CENT architectural specification to an executable Python and C++17 workflow:
 
-* **Without requiring `ramulator2`**, developers can install the Python package, dispatch PyTorch/NumPy projections through a C++17 C ABI via direct pointers (no serialization, and *zero-copy* for contiguous `float32` tensors on CPU), inspect the 14-byte SRAM packet *hex dump*, and verify the 99.95% reduction in external bus traffic.
-* **When coupled with `aim_simulator`**, the emitted `.trace` files enable cycle-accurate validation across 32 GDDR6-AiM channels without writing a single trace line by hand.
+- **Standalone execution (without `ramulator2`):** dispatches PyTorch/NumPy linear projections across a C ABI via direct memory pointers (with no serialization and no extra copy for contiguous `float32` CPU tensors), exposes the 14-byte binary packets in SRAM, and measures external bus traffic reduction.
+- **Simulator-coupled execution (with `aim_simulator`):** automatically emits CENT ISA `.trace` files and invokes Ramulator 2.0 to extract exact cycle counts across 32 GDDR6-AiM channels.
 
 ### References
 
 1. **Project Code:** [`josedercysilva/cent-pim-runtime`](https://github.com/josedercysilva/cent-pim-runtime)
-2. **Presentation Slides (UFAM Seminar):** [`apresentacao_cent.pdf`](https://github.com/josedercysilva/cent-pim-runtime/blob/main/apresentacao_cent.pdf) *(repository root)*
-3. **Original Paper (CENT):** Gu, Y., Khadem, A., et al. (2025). *PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*. **ASPLOS '25**.
-4. **Memory Hierarchy Fundamentals:** Patterson, D. A., & Hennessy, J. L. (2014). *Computer Organization and Design: The Hardware/Software Interface* (5th Ed. — MIPS Edition), Ch. 5.
+2. **Presentation Slides (UFAM Seminar):** [`apresentacao_cent.pdf`](https://github.com/josedercysilva/cent-pim-runtime/blob/main/apresentacao_cent.pdf)
+3. **Foundational Paper (CENT):** Gu, Y., Khadem, A., et al. (2025). *PIM Is All You Need: A CXL-Enabled GPU-Free System for Large Language Model Inference*. ASPLOS '25.
+4. **Memory Hierarchy:** Patterson, D. A., & Hennessy, J. L. (2014). *Computer Organization and Design: The Hardware/Software Interface* (5th Ed. — MIPS Edition), Ch. 5.
 5. **CXL Specification:** Compute Express Link Consortium (2022). *CXL Specification Revision 3.0*.
