@@ -1,5 +1,5 @@
-import { POSTS } from './posts-data.js?v=3';
-import { UI } from './i18n.js?v=3';
+import { POSTS } from './posts-data.js?v=5';
+import { UI } from './i18n.js?v=5';
 
 /* =========================================================
    ESTADO GLOBAL DA APLICAÇÃO
